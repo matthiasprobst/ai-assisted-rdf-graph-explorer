@@ -1,0 +1,5 @@
+{
+  "name": "AI Assisted RDF Graph Explorer",
+  "description": "A sophisticated RDF data visualizer that converts Turtle/RDF syntax into interactive force-directed graphs using D3.js, featuring AI-powered semantic analysis.",
+  "requestFramePermissions": []
+}
