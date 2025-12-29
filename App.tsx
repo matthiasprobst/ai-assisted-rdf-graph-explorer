@@ -100,7 +100,13 @@ const App: React.FC = () => {
     setIsChatLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // Get API key from environment (Docker) or fallback to build-time variable
+      const apiKey = (window as any).APP_CONFIG?.GEMINI_API_KEY || process.env.API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key not configured. Please set GEMINI_API_KEY environment variable.");
+      }
+      
+      const ai = new GoogleGenAI({ apiKey });
       if (!chatSessionRef.current) {
         chatSessionRef.current = ai.chats.create({
           model: 'gemini-3-flash-preview',
