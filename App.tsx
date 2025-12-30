@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Share2, Trash2, Play, Info, Layers, X, ExternalLink, MessageSquare, RotateCcw, Sparkles, Copy, Check, Send, User, Bot, AlertTriangle } from 'lucide-react';
 import { marked } from 'marked';
@@ -25,7 +24,7 @@ ex:CompanyX a ex:Organization ;
     ex:location "San Francisco" ;
     ex:employeeCount 500 .`;
 
-const DEFAULT_PROMPT = `Summarize the relationships in this dataset.`;
+const DEFAULT_PROMPT = `Give a short summary about the data.`;
 
 type Tab = 'source' | 'chat';
 
@@ -48,6 +47,19 @@ const App: React.FC = () => {
   const chatSessionRef = useRef<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // New: left panel width + resizing refs
+  const [leftWidth, setLeftWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('rdf_explorer_left_width');
+      return saved ? Math.max(220, Math.min(640, Number(saved))) : 320;
+    } catch {
+      return 320;
+    }
+  });
+  const resizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -91,6 +103,57 @@ const App: React.FC = () => {
       setLoading(false);
     }
   }, [input]);
+
+  // Resizing: handlers
+  const onPointerMove = useCallback((clientX: number) => {
+    if (!resizingRef.current) return;
+    const dx = clientX - startXRef.current;
+    const newWidth = Math.max(220, Math.min(window.innerWidth - 200, startWidthRef.current + dx));
+    setLeftWidth(newWidth);
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => onPointerMove(e.clientX);
+    const onMouseUp = () => {
+      if (resizingRef.current) {
+        resizingRef.current = false;
+        try { localStorage.setItem('rdf_explorer_left_width', String(leftWidth)); } catch {}
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => onPointerMove(e.touches[0].clientX);
+    const onTouchEnd = onMouseUp;
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [leftWidth, onPointerMove]);
+
+  const startResize = (clientX: number) => {
+    resizingRef.current = true;
+    startXRef.current = clientX;
+    startWidthRef.current = leftWidth;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    startResize(e.clientX);
+  };
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startResize(e.touches[0].clientX);
+  };
+  const resetLeftWidth = () => { setLeftWidth(320); try { localStorage.removeItem('rdf_explorer_left_width'); } catch {} };
 
   const handleSendChatMessage = async () => {
     if (!chatInput.trim() || isChatLoading) return;
@@ -158,8 +221,38 @@ const App: React.FC = () => {
   };
 
   const renderMarkdown = (text: string) => {
+    // generate HTML from markdown
     // @ts-ignore
     let html = marked.parse(text);
+
+    // Ensure external links open in a new tab with safe rel attributes
+    if (typeof window !== 'undefined' && html.indexOf('<a') !== -1) {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const anchors = Array.from(doc.querySelectorAll('a'));
+        anchors.forEach(a => {
+          const href = a.getAttribute('href') || '';
+          try {
+            // treat only absolute http(s) links as external
+            if (/^https?:\/\//i.test(href)) {
+              const url = new URL(href, window.location.href);
+              if (url.origin !== window.location.origin) {
+                a.setAttribute('target', '_blank');
+                // Use noopener noreferrer for safety
+                a.setAttribute('rel', 'noopener noreferrer');
+              }
+            }
+          } catch (e) {
+            // ignore malformed URLs
+          }
+        });
+        html = doc.body.innerHTML;
+      } catch (e) {
+        // DOMParser might not be available in some environments — fallback to leaving HTML unchanged
+      }
+    }
+
     if (fullGraphData) {
       // Collect all possible aliases for linking
       const entities = fullGraphData.nodes.flatMap(n => [
@@ -173,9 +266,9 @@ const App: React.FC = () => {
       const uniqueEntities = entities.filter(e => seen.has(e.key) ? false : seen.add(e.key));
 
       uniqueEntities.forEach(entity => {
-        const escaped = entity.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escaped = entity.key.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
         // Match only if it's not part of another word and not inside a tag attribute
-        const regex = new RegExp(`(?<![a-zA-Z0-9="])\\b(${escaped})\\b(?![a-zA-Z0-9])(?![^<]*>)`, 'g');
+        const regex = new RegExp(`(?<![a-zA-Z0-9=\"])\\b(${escaped})\\b(?![a-zA-Z0-9])(?![^<]*>)`, 'g');
         html = html.replace(regex, `<span class="mention" data-node-id="${entity.nodeId}">$1</span>`);
       });
     }
@@ -199,7 +292,8 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 flex overflow-hidden">
-        <div className="w-[320px] border-r border-slate-200 bg-white flex flex-col z-10 shrink-0 shadow-md">
+        {/* Left panel: use inline width and make it resizable via the handle */}
+        <div style={{ width: leftWidth }} className="border-r border-slate-200 bg-white flex flex-col z-10 flex-shrink-0 shadow-md">
           <div className="flex bg-slate-50 p-1 border-b border-slate-200">
             <button onClick={() => setActiveTab('source')} className={`flex-1 py-1.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all ${activeTab === 'source' ? 'bg-white shadow-sm text-blue-600 border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}>Dataset</button>
             <button onClick={() => setActiveTab('chat')} className={`flex-1 py-1.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all ${activeTab === 'chat' ? 'bg-white shadow-sm text-indigo-600 border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}>Assistant</button>
@@ -245,6 +339,17 @@ const App: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* draggable handle */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleMouseDown}
+          onDoubleClick={resetLeftWidth}
+          onTouchStart={handleTouchStart}
+          className="w-2 cursor-col-resize hover:bg-slate-200 transition-colors"
+          style={{ background: 'transparent' }}
+        />
 
         <div className="flex-1 relative bg-slate-100">
           {fullGraphData ? (
