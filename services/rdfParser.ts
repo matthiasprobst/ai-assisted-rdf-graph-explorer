@@ -1,5 +1,5 @@
 
-import * as N3 from 'https://esm.sh/n3@1.17.1';
+import * as N3 from 'n3';
 import { GraphData, RDFNode, RDFLink } from '../types';
 
 export const parseTurtle = async (turtle: string): Promise<GraphData> => {

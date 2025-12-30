@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import * as d3 from 'https://esm.sh/d3@7.8.5';
+import * as d3 from 'd3';
 import { GraphData, RDFNode } from '../types';
 
 interface Props {
