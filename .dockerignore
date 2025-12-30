@@ -4,6 +4,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Lock files - only exclude if you want to use them locally
+# package-lock.json
+# yarn.lock
+
 # Build artifacts
 dist
 build
